@@ -1,187 +1,243 @@
 import React, { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
 import { Dialog } from '@/components/ui/Dialog';
 import { AlertDialog } from '@/components/ui/AlertDialog';
-import { Search, Plus, Edit2, Trash2 } from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
+import { FormField, Input, Select } from '@/components/ui/FormField';
+import { DashboardSkeleton, ErrorBanner } from '@/components/ui/Skeleton';
+import { useToast } from '@/components/ui/Toast';
+import { Plus, Edit2, Trash2, Search, FileText, Loader2 } from 'lucide-react';
+import { useFetch } from '@/hooks/useFetch';
+import { subjectsApi, coursesApi } from '@/lib/api';
 
-const initialSubjects = [
-  { id: 1, name: 'Data Structures', code: 'CS301', course: 'BTECH-COMP', sem: '3', type: 'Theory', credits: '4' },
-  { id: 2, name: 'Operating Systems', code: 'CS302', course: 'BTECH-COMP', sem: '5', type: 'Theory', credits: '4' },
-  { id: 3, name: 'Data Structures Lab', code: 'CS301L', course: 'BTECH-COMP', sem: '3', type: 'Lab', credits: '1.5' },
-];
+const EMPTY_FORM = { name: '', code: '', courseId: '', semester: 1, credits: 3 };
 
 export function AdminSubjects() {
-  const [subjects, setSubjects] = useState(initialSubjects);
+  const { toast } = useToast();
+
+  const { data, loading, error, refetch } = useFetch(() => subjectsApi.list() as Promise<any>);
+  const { data: coursesData } = useFetch(() => coursesApi.list() as Promise<any>);
+
+  const [search,       setSearch]       = useState('');
+  const [filterCourse, setFilterCourse] = useState('');
+  const [filterSem,    setFilterSem]    = useState('');
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isAlertOpen, setIsAlertOpen] = useState(false);
-  const [editingSubject, setEditingSubject] = useState<any>(null);
-  const [deletingSubject, setDeletingSubject] = useState<any>(null);
+  const [isAlertOpen,  setIsAlertOpen]  = useState(false);
+  const [editing,  setEditing]  = useState<any>(null);
+  const [deleting, setDeleting] = useState<any>(null);
+  const [saving,   setSaving]   = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
 
-  const [name, setName] = useState('');
-  const [code, setCode] = useState('');
-  const [course, setCourse] = useState('');
-  const [sem, setSem] = useState('');
-  const [type, setType] = useState('');
-  const [credits, setCredits] = useState('');
+  const courses: any[]  = (coursesData as any)?.courses ?? [];
+  const allSubjects: any[] = (data as any)?.subjects ?? [];
 
-  const openAddDialog = () => {
-     setEditingSubject(null);
-     setName('');
-     setCode('');
-     setCourse('');
-     setSem('');
-     setType('');
-     setCredits('');
-     setIsDialogOpen(true);
+  const filtered = allSubjects.filter((s: any) => {
+    const matchQ  = !search      || s.name.toLowerCase().includes(search.toLowerCase()) || s.code.toLowerCase().includes(search.toLowerCase());
+    const matchC  = !filterCourse || s.course?.id === filterCourse;
+    const matchS  = !filterSem   || String(s.semester) === filterSem;
+    return matchQ && matchC && matchS;
+  });
+
+  // Group by semester for display
+  const bySemester = filtered.reduce<Record<number, any[]>>((acc, s) => {
+    const sem = s.semester ?? 0;
+    if (!acc[sem]) acc[sem] = [];
+    acc[sem].push(s);
+    return acc;
+  }, {});
+  const semesterKeys = Object.keys(bySemester).map(Number).sort((a, b) => a - b);
+
+  const openAdd = () => { setEditing(null); setForm(EMPTY_FORM); setIsDialogOpen(true); };
+  const openEdit = (s: any) => {
+    setEditing(s);
+    setForm({ name: s.name, code: s.code, courseId: s.course?.id ?? '', semester: s.semester, credits: s.credits });
+    setIsDialogOpen(true);
   };
 
-  const openEditDialog = (subj: any) => {
-     setEditingSubject(subj);
-     setName(subj.name);
-     setCode(subj.code);
-     setCourse(subj.course);
-     setSem(subj.sem);
-     setType(subj.type);
-     setCredits(subj.credits);
-     setIsDialogOpen(true);
+  const f = (field: keyof typeof EMPTY_FORM) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm((prev) => ({ ...prev, [field]: e.target.value }));
+
+  const handleSave = async () => {
+    if (!form.name || !form.code || !form.courseId) {
+      toast('error', 'Name, code, and course are required.'); return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        name: form.name, code: form.code.toUpperCase(),
+        courseId: form.courseId, semester: Number(form.semester), credits: Number(form.credits),
+      };
+      if (editing) {
+        await subjectsApi.update(editing.id, payload);
+        toast('success', 'Subject updated.');
+      } else {
+        await subjectsApi.create(payload);
+        toast('success', 'Subject created.');
+      }
+      setIsDialogOpen(false);
+      refetch();
+    } catch (err: any) {
+      toast('error', err.message ?? 'Failed to save subject.');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const openDeleteDialog = (subj: any) => {
-     setDeletingSubject(subj);
-     setIsAlertOpen(true);
+  const handleDelete = async () => {
+    if (!deleting) return;
+    setRemoving(true);
+    try {
+      await subjectsApi.delete(deleting.id);
+      toast('success', `"${deleting.name}" deleted.`);
+      setIsAlertOpen(false);
+      refetch();
+    } catch (err: any) {
+      toast('error', err.message ?? 'Cannot delete — subject may have linked sessions or marks.');
+    } finally {
+      setRemoving(false);
+    }
   };
+
+  // Unique semesters across all subjects for filter dropdown
+  const allSemesters = [...new Set(allSubjects.map((s: any) => s.semester))].sort((a: any, b: any) => a - b);
+
+  if (loading) return <DashboardSkeleton />;
+  if (error)   return <ErrorBanner message={error} onRetry={refetch} />;
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Subjects</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Manage curriculum and subjects</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">{allSubjects.length} subjects across all courses</p>
         </div>
-        <Button  onClick={openAddDialog}><Plus className="mr-2 h-4 w-4" /> Add Subject</Button>
+        <Button onClick={openAdd}><Plus className="mr-2 h-4 w-4" /> Add Subject</Button>
       </div>
 
-      <Dialog 
-        isOpen={isDialogOpen} 
-        onClose={() => setIsDialogOpen(false)} 
-        title={editingSubject ? "Edit Subject" : "Add Subject"}
+      {/* Dialog */}
+      <Dialog isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)}
+        title={editing ? 'Edit Subject' : 'Add Subject'}
         footer={
-           <>
-              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-              <Button  onClick={() => setIsDialogOpen(false)}>Save</Button>
-           </>
+          <>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)} disabled={saving}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving…</> : editing ? 'Save Changes' : 'Create Subject'}
+            </Button>
+          </>
         }
       >
         <div className="space-y-4 py-2">
-           <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name <span className="text-red-500">*</span></label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. Data Structures" />
-           </div>
-           <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Code <span className="text-red-500">*</span></label>
-                 <input type="text" value={code} onChange={(e) => setCode(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. CS301" />
-              </div>
-              <div className="space-y-2">
-                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Course <span className="text-red-500">*</span></label>
-                 <select value={course} onChange={(e) => setCourse(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">Select...</option>
-                    <option value="BTECH-COMP">BTECH-COMP</option>
-                    <option value="BTECH-MECH">BTECH-MECH</option>
-                 </select>
-              </div>
-           </div>
-           <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Semester <span className="text-red-500">*</span></label>
-                 <input type="number" value={sem} onChange={(e) => setSem(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="3" />
-              </div>
-              <div className="space-y-2">
-                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Credits <span className="text-red-500">*</span></label>
-                 <input type="number" value={credits} onChange={(e) => setCredits(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="4" />
-              </div>
-              <div className="space-y-2">
-                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Type <span className="text-red-500">*</span></label>
-                 <select value={type} onChange={(e) => setType(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">Select...</option>
-                    <option value="Theory">Theory</option>
-                    <option value="Lab">Lab</option>
-                    <option value="Elective">Elective</option>
-                    <option value="Project">Project</option>
-                 </select>
-              </div>
-           </div>
+          <FormField label="Subject Name" required>
+            <Input value={form.name} onChange={f('name')} placeholder="Data Structures and Algorithms" />
+          </FormField>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Subject Code" required>
+              <Input value={form.code} onChange={f('code')} placeholder="DS" className="uppercase" />
+            </FormField>
+            <FormField label="Course" required>
+              <Select value={form.courseId} onChange={f('courseId')}>
+                <option value="">Select course…</option>
+                {courses.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </Select>
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Semester" required>
+              <Select value={form.semester} onChange={f('semester')}>
+                {[1,2,3,4,5,6,7,8].map((n) => <option key={n} value={n}>Semester {n}</option>)}
+              </Select>
+            </FormField>
+            <FormField label="Credits" required>
+              <Select value={form.credits} onChange={f('credits')}>
+                {[1,2,3,4,5,6].map((n) => <option key={n} value={n}>{n} credit{n > 1 ? 's' : ''}</option>)}
+              </Select>
+            </FormField>
+          </div>
         </div>
       </Dialog>
 
-      <AlertDialog
-         isOpen={isAlertOpen}
-         onClose={() => setIsAlertOpen(false)}
-         onConfirm={() => setIsAlertOpen(false)}
-         title={`Delete ${deletingSubject?.name}?`}
-         description="This subject can only be deleted if no marks have been entered. Are you sure?"
-         confirmText="Delete"
-         isDestructive={true}
-      />
+      {/* Delete confirm */}
+      <AlertDialog isOpen={isAlertOpen} onClose={() => setIsAlertOpen(false)}
+        onConfirm={handleDelete}
+        title={`Delete "${deleting?.name}"?`}
+        description="This will fail if any sessions, attendance records, or marks are linked to this subject."
+        confirmText={removing ? 'Deleting…' : 'Delete'} isDestructive />
 
+      {/* Filters */}
       <Card>
-        <div className="border-b border-slate-200 dark:border-slate-800 p-4 flex gap-4 items-center bg-slate-50/50 dark:bg-slate-900/50 flex-wrap">
+        <div className="p-4 flex flex-col sm:flex-row gap-3 items-center border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
           <div className="relative w-full sm:max-w-xs">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Search subjects..." 
-              className="w-full pl-9 pr-4 py-2 text-sm border border-slate-300 rounded-lg dark:border-slate-700 dark:bg-slate-950 focus:ring-2 focus:ring-blue-500 outline-none"
-            />
+            <input type="text" placeholder="Search name or code…" value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 text-sm border border-slate-300 rounded-lg dark:border-slate-700 dark:bg-slate-950 focus:ring-2 focus:ring-blue-500 outline-none" />
           </div>
-          <select className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm dark:bg-slate-950 dark:border-slate-700 outline-none hidden sm:block">
-            <option>All Courses</option>
-            <option>BTECH-COMP</option>
+          <select value={filterCourse} onChange={(e) => setFilterCourse(e.target.value)}
+            className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 outline-none">
+            <option value="">All Courses</option>
+            {courses.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <select className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm dark:bg-slate-950 dark:border-slate-700 outline-none hidden sm:block">
-            <option>All Semesters</option>
-            <option>Semester 1</option>
-            <option>Semester 5</option>
+          <select value={filterSem} onChange={(e) => setFilterSem(e.target.value)}
+            className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 outline-none">
+            <option value="">All Semesters</option>
+            {allSemesters.map((s: any) => <option key={s} value={s}>Semester {s}</option>)}
           </select>
+          {(search || filterCourse || filterSem) && (
+            <button onClick={() => { setSearch(''); setFilterCourse(''); setFilterSem(''); }}
+              className="text-sm text-blue-600 hover:underline whitespace-nowrap">
+              Clear filters
+            </button>
+          )}
         </div>
+
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left whitespace-nowrap">
-              <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
-                <tr>
-                  <th className="px-4 py-3 font-medium text-slate-500">Subject Name</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Code</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Course</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Sem</th>
-                  <th className="px-4 py-3 font-medium text-slate-500 text-center">Type</th>
-                  <th className="px-4 py-3 font-medium text-slate-500 text-center">Credits</th>
-                  <th className="px-4 py-3 font-medium text-slate-500 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                {subjects.map((s) => (
-                  <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{s.name}</td>
-                    <td className="px-4 py-3 font-mono text-slate-500">{s.code}</td>
-                    <td className="px-4 py-3">{s.course}</td>
-                    <td className="px-4 py-3 text-center">{s.sem}</td>
-                    <td className="px-4 py-3 text-center">
-                       <Badge variant="outline">{s.type}</Badge>
-                    </td>
-                    <td className="px-4 py-3 text-center">{s.credits}</td>
-                    <td className="px-4 py-3 text-right">
-                       <div className="flex justify-end gap-2">
-                         <button onClick={() => openEditDialog(s)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"><Edit2 className="w-4 h-4" /></button>
-                         <button onClick={() => openDeleteDialog(s)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"><Trash2 className="w-4 h-4" /></button>
-                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {filtered.length === 0 ? (
+            <div className="text-center py-16 text-slate-400">
+              <FileText className="w-10 h-10 mx-auto mb-3 opacity-40" />
+              <p>No subjects found.</p>
+            </div>
+          ) : (
+            semesterKeys.map((sem) => (
+              <div key={sem}>
+                <div className="px-5 py-2 bg-slate-50 dark:bg-slate-900/60 border-y border-slate-100 dark:border-slate-800 text-xs font-semibold text-slate-500 tracking-wider uppercase">
+                  Semester {sem}
+                </div>
+                <div className="divide-y divide-slate-100 dark:divide-slate-800/50">
+                  {bySemester[sem].map((subject: any) => (
+                    <div key={subject.id} className="px-5 py-4 flex items-center gap-4 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                      <div className="w-9 h-9 rounded-lg bg-blue-50 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                        <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-slate-900 dark:text-white truncate">{subject.name}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {subject.code} · {subject.course?.name ?? '—'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <Badge variant="outline" className="text-xs hidden sm:flex">
+                          {subject.credits} cr
+                        </Badge>
+                        <button onClick={() => openEdit(subject)}
+                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => { setDeleting(subject); setIsAlertOpen(true); }}
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
         </CardContent>
       </Card>
     </div>

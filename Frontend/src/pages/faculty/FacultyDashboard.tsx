@@ -2,55 +2,84 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { QrCode, CheckSquare, Upload, CalendarDays, Clock } from 'lucide-react';
+import { DashboardSkeleton, ErrorBanner } from '@/components/ui/Skeleton';
+import { CheckSquare, Clock, CalendarDays } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useFetch } from '@/hooks/useFetch';
+import { dashboardApi } from '@/lib/api';
+import { useAppStore } from '@/store/useAppStore';
 
 export function FacultyDashboard() {
-  const attendanceData = [
-    { name: 'Present', value: 85 },
-    { name: 'Absent', value: 15 },
+  const navigate = useNavigate();
+  const { user } = useAppStore();
+
+  const { data, loading, error, refetch } = useFetch(() => dashboardApi.faculty() as Promise<any>);
+
+  if (loading) return <DashboardSkeleton />;
+  if (error)   return <ErrorBanner message={error} onRetry={refetch} />;
+
+  const d = data as any;
+  const todaysSessions: any[] = d?.todaysSessions ?? [];
+  const assignments: any[]    = d?.assignments ?? [];
+  const attendanceToday       = d?.attendanceToday ?? {};
+
+  const totalToday = (attendanceToday.present ?? 0) + (attendanceToday.absent ?? 0) + (attendanceToday.late ?? 0);
+  const attendancePct = totalToday > 0
+    ? Math.round(((attendanceToday.present + attendanceToday.late) / totalToday) * 100)
+    : null;
+
+  const pieData = [
+    { name: 'Present', value: attendancePct ?? 0 },
+    { name: 'Other',   value: 100 - (attendancePct ?? 0) },
   ];
-  const COLORS = ['#2563EB', '#f1f5f9']; // blue-600 and slate-100 (for light mode) 
+  const COLORS = ['#2563EB', '#f1f5f9'];
+
+  const now = new Date();
+  const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 17 ? 'Good afternoon' : 'Good evening';
+  const today = now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Good morning, Dr. Patil 👋</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Monday, 13 January 2025</p>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+          {greeting}, {user?.name?.split(' ')[0] ?? 'Professor'} 👋
+        </h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{today}</p>
       </div>
 
+      {/* Stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="bg-blue-50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900/30">
           <CardContent className="p-6">
             <p className="text-sm font-medium text-blue-700 dark:text-blue-400">Sessions Today</p>
-            <h2 className="text-3xl font-bold mt-1 text-slate-900 dark:text-white">3</h2>
+            <h2 className="text-3xl font-bold mt-1 text-slate-900 dark:text-white">{todaysSessions.length}</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              {todaysSessions.filter((s: any) => s.status === 'Completed').length} completed
+            </p>
           </CardContent>
         </Card>
-        
+
         <Card className="bg-blue-50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900/30">
           <CardContent className="p-6 flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-blue-700 dark:text-blue-400">My Attendance</p>
-              <h2 className="text-3xl font-bold mt-1 text-slate-900 dark:text-white">85%</h2>
+              <p className="text-sm font-medium text-blue-700 dark:text-blue-400">Today's Attendance</p>
+              <h2 className="text-3xl font-bold mt-1 text-slate-900 dark:text-white">
+                {attendancePct !== null ? `${attendancePct}%` : '—'}
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">{totalToday} records</p>
             </div>
             <div className="h-16 w-16 -mr-2">
               <ResponsiveContainer width="100%" height="100%">
-                 <PieChart>
-                    <Pie
-                       data={attendanceData}
-                       innerRadius={20}
-                       outerRadius={30}
-                       paddingAngle={2}
-                       dataKey="value"
-                       stroke="none"
-                    >
-                       {attendanceData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} className={index === 1 ? 'dark:fill-slate-800' : ''} />
-                       ))}
-                    </Pie>
-                    <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
-                 </PieChart>
+                <PieChart>
+                  <Pie data={pieData} innerRadius={20} outerRadius={30} paddingAngle={2} dataKey="value" stroke="none">
+                    {pieData.map((_, index) => (
+                      <Cell key={index} fill={COLORS[index % COLORS.length]}
+                        className={index === 1 ? 'dark:fill-slate-800' : ''} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
+                </PieChart>
               </ResponsiveContainer>
             </div>
           </CardContent>
@@ -58,120 +87,108 @@ export function FacultyDashboard() {
 
         <Card className="bg-blue-50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900/30">
           <CardContent className="p-6">
-            <p className="text-sm font-medium text-blue-700 dark:text-blue-400">Marks Pending</p>
-            <h2 className="text-3xl font-bold mt-1 text-slate-900 dark:text-white">2</h2>
+            <p className="text-sm font-medium text-blue-700 dark:text-blue-400">Subjects Assigned</p>
+            <h2 className="text-3xl font-bold mt-1 text-slate-900 dark:text-white">{assignments.length}</h2>
+            <p className="text-xs text-slate-500 mt-1">This academic year</p>
           </CardContent>
         </Card>
       </div>
 
+      {/* Today's timetable + assignments */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-         <div className="xl:col-span-2 space-y-4">
-            <div className="flex items-center justify-between">
-               <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-blue-600" /> Today's Timetable
-               </h2>
-               <Button variant="outline" size="sm" className="hidden sm:flex text-slate-500"><CalendarDays className="w-4 h-4 mr-2" /> View Full Schedule</Button>
-            </div>
-            
-            <div className="grid grid-cols-1 gap-4">
-              <Card className="border-l-4 border-l-blue-600 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                <CardContent className="p-5 flex flex-col md:flex-row gap-4 justify-between md:items-center">
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between md:justify-start gap-3 mb-1">
-                       <CardTitle className="text-lg text-slate-900 dark:text-white">CS301 — Data Structures</CardTitle>
-                       <Badge variant="warning" className="md:hidden">Ongoing</Badge>
-                    </div>
-                    <CardDescription className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
-                       <span className="font-medium text-slate-800 dark:text-slate-200">Room 204</span> • Computer Eng • Div A 
-                    </CardDescription>
-                    <div className="flex items-center gap-3 mt-3">
-                      <Badge variant="warning" className="hidden md:inline-flex">Ongoing</Badge>
-                      <span className="text-xs text-slate-500 font-medium font-mono flex items-center gap-1"><Clock className="w-3 h-3"/> 09:00 AM – 10:00 AM</span>
-                      <span className="text-xs text-slate-400">•</span>
-                      <span className="text-xs text-slate-500 font-medium">60 Students</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2 shrink-0 border-t md:border-t-0 md:border-l border-slate-100 dark:border-slate-800 pt-4 md:pt-0 md:pl-6 w-full md:w-auto">
-                    <Link to="/faculty/sessions/1">
-                      <Button  className="w-full justify-start"><CheckSquare className="mr-2 h-4 w-4"/> Start & Take Attendance</Button>
-                    </Link>
-                    <Button variant="outline" className="w-full justify-start text-blue-600 dark:text-blue-400"><QrCode className="mr-2 h-4 w-4"/> Generate Subject QR</Button>
-                  </div>
-                </CardContent>
-              </Card>
+        <div className="xl:col-span-2 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+              <Clock className="w-5 h-5 text-blue-600" /> Today's Sessions
+            </h2>
+            <Button variant="outline" size="sm" className="hidden sm:flex text-slate-500"
+              onClick={() => navigate('/faculty/sessions')}>
+              <CalendarDays className="w-4 h-4 mr-2" /> All Sessions
+            </Button>
+          </div>
 
-              <Card className="border-l-4 border-l-slate-200 dark:border-l-slate-700 shadow-sm hover:shadow-md transition-shadow">
-                <CardContent className="p-5 flex flex-col md:flex-row gap-4 justify-between md:items-center">
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between md:justify-start gap-3 mb-1">
-                       <CardTitle className="text-lg text-slate-900 dark:text-white flex items-center gap-2">CS302 — Algorithms</CardTitle>
-                       <Badge variant="outline" className="md:hidden text-slate-500">Upcoming</Badge>
-                    </div>
-                    <CardDescription className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
-                       <span className="font-medium text-slate-800 dark:text-slate-200">Room 205</span> • Computer Eng • Div B
-                    </CardDescription>
-                    <div className="flex flex-wrap items-center gap-3 mt-3">
-                      <Badge variant="outline" className="hidden md:inline-flex text-slate-500">Upcoming</Badge>
-                      <span className="text-xs text-slate-500 font-medium font-mono flex items-center gap-1"><Clock className="w-3 h-3"/> 11:00 AM – 12:00 PM</span>
-                      <span className="text-xs text-slate-400">•</span>
-                      <span className="text-xs text-slate-500 font-medium">62 Students</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2 shrink-0 border-t md:border-t-0 md:border-l border-slate-100 dark:border-slate-800 pt-4 md:pt-0 md:pl-6 w-full md:w-auto">
-                    <Button variant="outline" className="w-full justify-start text-slate-500" disabled><CheckSquare className="mr-2 h-4 w-4"/> Start Class</Button>
-                  </div>
-                </CardContent>
-              </Card>
-              
-              <Card className="border-l-4 border-l-slate-200 dark:border-l-slate-700 shadow-sm hover:shadow-md transition-shadow opacity-60">
-                <CardContent className="p-5 flex flex-col md:flex-row gap-4 justify-between md:items-center">
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between md:justify-start gap-3 mb-1">
-                       <CardTitle className="text-lg text-slate-900 dark:text-white flex items-center gap-2">CS301L — Data Structure Lab</CardTitle>
-                       <Badge variant="outline" className="md:hidden text-slate-500">Upcoming</Badge>
-                    </div>
-                    <CardDescription className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
-                       <span className="font-medium text-slate-800 dark:text-slate-200">Lab 3</span> • Computer Eng • Batch B1
-                    </CardDescription>
-                    <div className="flex flex-wrap items-center gap-3 mt-3">
-                      <Badge variant="outline" className="hidden md:inline-flex text-slate-500">Upcoming</Badge>
-                      <span className="text-xs text-slate-500 font-medium font-mono flex items-center gap-1"><Clock className="w-3 h-3"/> 02:00 PM – 04:00 PM</span>
-                      <span className="text-xs text-slate-400">•</span>
-                      <span className="text-xs text-slate-500 font-medium">20 Students</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2 shrink-0 border-t md:border-t-0 md:border-l border-slate-100 dark:border-slate-800 pt-4 md:pt-0 md:pl-6 w-full md:w-auto">
-                    <Button variant="outline" className="w-full justify-start text-slate-500" disabled><CheckSquare className="mr-2 h-4 w-4"/> Start Class</Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-         </div>
-         
-         <div>
-            <h2 className="text-lg font-semibold mb-4 text-slate-900 dark:text-white">Pending Tasks</h2>
-            <Card className="border-red-100 dark:border-red-900/30 bg-red-50/50 dark:bg-red-900/10">
-              <CardContent className="p-5 flex flex-col justify-between gap-4">
-                 <div>
-                    <h3 className="font-semibold text-slate-900 dark:text-white">CS301 — Internal Test 1</h3>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 line-clamp-2">You need to upload marks for Div A. The deadline is approaching.</p>
-                 </div>
-                 <div className="flex flex-col gap-2">
-                    <div className="flex items-center text-xs font-medium text-red-600 dark:text-red-400 mb-1">
-                       <Clock className="w-3 h-3 mr-1" /> Due by 20 Jan 2025
-                    </div>
-                    <Link to="/faculty/marks">
-                      <Button  className="w-full">Enter Marks</Button>
-                    </Link>
-                    <Link to="/faculty/ocr">
-                      <Button variant="outline" className="w-full bg-white dark:bg-slate-950 hover:bg-slate-50"><Upload className="mr-2 h-4 w-4"/> OCR Upload</Button>
-                    </Link>
-                 </div>
+          {todaysSessions.length === 0 ? (
+            <Card>
+              <CardContent className="p-8 text-center text-slate-400">
+                <p className="text-sm">No sessions scheduled for today.</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => navigate('/faculty/sessions')}>
+                  Create a session
+                </Button>
               </CardContent>
             </Card>
-         </div>
-      </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {todaysSessions.map((session: any) => {
+                const isCompleted = session.status === 'Completed';
+                const isCancelled = session.status === 'Cancelled';
+                return (
+                  <Card key={session.id}
+                    className={`border-l-4 overflow-hidden shadow-sm hover:shadow-md transition-shadow
+                      ${isCompleted ? 'border-l-green-500 opacity-70' : isCancelled ? 'border-l-red-400 opacity-50' : 'border-l-blue-600'}`}>
+                    <CardContent className="p-5 flex flex-col md:flex-row gap-4 justify-between md:items-center">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-1">
+                          <CardTitle className="text-base text-slate-900 dark:text-white">
+                            {session.subject?.name ?? 'Subject'}
+                          </CardTitle>
+                          <Badge variant={isCompleted ? 'success' : isCancelled ? 'danger' : 'warning'}>
+                            {session.status}
+                          </Badge>
+                        </div>
+                        <CardDescription>
+                          Division {session.division}
+                        </CardDescription>
+                        <div className="flex items-center gap-3 mt-2 text-xs text-slate-500 font-medium">
+                          <span className="font-mono flex items-center gap-1">
+                            <Clock className="w-3 h-3" /> {session.start_time} – {session.end_time}
+                          </span>
+                        </div>
+                      </div>
+                      {!isCompleted && !isCancelled && (
+                        <div className="flex flex-col gap-2 shrink-0 border-t md:border-t-0 md:border-l border-slate-100 dark:border-slate-800 pt-4 md:pt-0 md:pl-6 w-full md:w-auto">
+                          <Link to={`/faculty/sessions/${session.id}`}>
+                            <Button className="w-full justify-start">
+                              <CheckSquare className="mr-2 h-4 w-4" /> Take Attendance
+                            </Button>
+                          </Link>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
+        {/* Assigned subjects sidebar */}
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">My Subjects</h2>
+          {assignments.length === 0 ? (
+            <Card>
+              <CardContent className="p-6 text-center text-sm text-slate-400">
+                No subjects assigned yet.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {assignments.map((a: any) => (
+                <Card key={a.id} className="border-slate-100 dark:border-slate-800">
+                  <CardContent className="p-4">
+                    <p className="font-medium text-sm text-slate-900 dark:text-white">{a.subject?.name}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {a.subject?.code} · Sem {a.subject?.semester} · Div {a.division}
+                    </p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+          <Button variant="outline" className="w-full" onClick={() => navigate('/faculty/sessions')}>
+            + Create New Session
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

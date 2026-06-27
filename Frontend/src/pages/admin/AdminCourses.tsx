@@ -3,164 +3,203 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { AlertDialog } from '@/components/ui/AlertDialog';
-import { Search, Plus, Edit2, Trash2 } from 'lucide-react';
+import { FormField, Input, Select } from '@/components/ui/FormField';
+import { DashboardSkeleton, ErrorBanner } from '@/components/ui/Skeleton';
+import { useToast } from '@/components/ui/Toast';
+import { Plus, Edit2, Trash2, BookOpen, Loader2 } from 'lucide-react';
+import { useFetch } from '@/hooks/useFetch';
+import { coursesApi, departmentsApi } from '@/lib/api';
 
-const initialCourses = [
-  { id: 1, name: 'Bachelor of Technology in Computer Engineering', code: 'BTECH-COMP', dept: 'COMP', dur: '4', sem: '8', students: 480 },
-  { id: 2, name: 'Bachelor of Technology in Mechanical', code: 'BTECH-MECH', dept: 'MECH', dur: '4', sem: '8', students: 320 },
-  { id: 3, name: 'Master of Technology in Data Science', code: 'MTECH-DS', dept: 'COMP', dur: '2', sem: '4', students: 60 },
-];
+const EMPTY_FORM = { name: '', code: '', departmentId: '', durationYears: 4 };
 
 export function AdminCourses() {
-  const [courses, setCourses] = useState(initialCourses);
+  const { toast } = useToast();
+
+  const { data, loading, error, refetch } = useFetch(() => coursesApi.list() as Promise<any>);
+  const { data: deptsData } = useFetch(() => departmentsApi.list() as Promise<any>);
+
+  const [filterDept,   setFilterDept]   = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isAlertOpen, setIsAlertOpen] = useState(false);
-  const [editingCourse, setEditingCourse] = useState<any>(null);
-  const [deletingCourse, setDeletingCourse] = useState<any>(null);
+  const [isAlertOpen,  setIsAlertOpen]  = useState(false);
+  const [editing,  setEditing]  = useState<any>(null);
+  const [deleting, setDeleting] = useState<any>(null);
+  const [saving,   setSaving]   = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
 
-  const [name, setName] = useState('');
-  const [code, setCode] = useState('');
-  const [dept, setDept] = useState('');
-  const [dur, setDur] = useState('');
-  const [sem, setSem] = useState('');
+  const departments: any[] = (deptsData as any)?.departments ?? [];
+  const allCourses: any[]  = (data as any)?.courses ?? [];
+  const courses = filterDept
+    ? allCourses.filter((c: any) => c.department?.id === filterDept || c.department_id === filterDept)
+    : allCourses;
 
-  const openAddDialog = () => {
-     setEditingCourse(null);
-     setName('');
-     setCode('');
-     setDept('');
-     setDur('');
-     setSem('');
-     setIsDialogOpen(true);
+  const openAdd = () => { setEditing(null); setForm(EMPTY_FORM); setIsDialogOpen(true); };
+  const openEdit = (c: any) => {
+    setEditing(c);
+    setForm({
+      name: c.name, code: c.code,
+      departmentId: c.department?.id ?? c.department_id ?? '',
+      durationYears: c.duration_years ?? 4,
+    });
+    setIsDialogOpen(true);
   };
 
-  const openEditDialog = (course: any) => {
-     setEditingCourse(course);
-     setName(course.name);
-     setCode(course.code);
-     setDept(course.dept);
-     setDur(course.dur);
-     setSem(course.sem);
-     setIsDialogOpen(true);
+  const f = (field: keyof typeof EMPTY_FORM) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm((prev) => ({ ...prev, [field]: e.target.value }));
+
+  const handleSave = async () => {
+    if (!form.name || !form.code || !form.departmentId) {
+      toast('error', 'Name, code, and department are required.'); return;
+    }
+    setSaving(true);
+    try {
+      const payload = { name: form.name, code: form.code.toUpperCase(), departmentId: form.departmentId, durationYears: Number(form.durationYears) };
+      if (editing) {
+        await coursesApi.update(editing.id, payload);
+        toast('success', 'Course updated.');
+      } else {
+        await coursesApi.create(payload);
+        toast('success', 'Course created.');
+      }
+      setIsDialogOpen(false);
+      refetch();
+    } catch (err: any) {
+      toast('error', err.message ?? 'Failed to save course.');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const openDeleteDialog = (course: any) => {
-     setDeletingCourse(course);
-     setIsAlertOpen(true);
+  const handleDelete = async () => {
+    if (!deleting) return;
+    setRemoving(true);
+    try {
+      await coursesApi.delete(deleting.id);
+      toast('success', `"${deleting.name}" deleted.`);
+      setIsAlertOpen(false);
+      refetch();
+    } catch (err: any) {
+      toast('error', err.message ?? 'Cannot delete — course may have linked subjects or students.');
+    } finally {
+      setRemoving(false);
+    }
   };
+
+  if (loading) return <DashboardSkeleton />;
+  if (error)   return <ErrorBanner message={error} onRetry={refetch} />;
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Courses</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Manage academic programs</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">{allCourses.length} courses across all departments</p>
         </div>
-        <Button  onClick={openAddDialog}><Plus className="mr-2 h-4 w-4" /> Add Course</Button>
+        <div className="flex items-center gap-3">
+          <select value={filterDept} onChange={(e) => setFilterDept(e.target.value)}
+            className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm dark:bg-slate-950 dark:border-slate-700 dark:text-slate-300 outline-none">
+            <option value="">All Departments</option>
+            {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+          <Button onClick={openAdd}><Plus className="mr-2 h-4 w-4" /> Add Course</Button>
+        </div>
       </div>
 
-      <Dialog 
-        isOpen={isDialogOpen} 
-        onClose={() => setIsDialogOpen(false)} 
-        title={editingCourse ? "Edit Course" : "Add Course"}
+      {/* Dialog */}
+      <Dialog isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)}
+        title={editing ? 'Edit Course' : 'Add Course'}
         footer={
-           <>
-              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-              <Button  onClick={() => setIsDialogOpen(false)}>Save</Button>
-           </>
+          <>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)} disabled={saving}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving…</> : editing ? 'Save Changes' : 'Create Course'}
+            </Button>
+          </>
         }
       >
         <div className="space-y-4 py-2">
-           <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name <span className="text-red-500">*</span></label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. B.Tech in Computer Engineering" />
-           </div>
-           <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Code <span className="text-red-500">*</span></label>
-                 <input type="text" value={code} onChange={(e) => setCode(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. BTECH-COMP" />
-              </div>
-              <div className="space-y-2">
-                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Department <span className="text-red-500">*</span></label>
-                 <select value={dept} onChange={(e) => setDept(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">Select...</option>
-                    <option value="COMP">COMP</option>
-                    <option value="MECH">MECH</option>
-                 </select>
-              </div>
-           </div>
-           <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Duration (Years) <span className="text-red-500">*</span></label>
-                 <input type="number" value={dur} onChange={(e) => setDur(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="4" />
-              </div>
-              <div className="space-y-2">
-                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Total Semesters <span className="text-red-500">*</span></label>
-                 <input type="number" value={sem} onChange={(e) => setSem(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="8" />
-              </div>
-           </div>
+          <FormField label="Course Name" required>
+            <Input value={form.name} onChange={f('name')} placeholder="B.E. Computer Engineering" />
+          </FormField>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Short Code" required>
+              <Input value={form.code} onChange={f('code')} placeholder="BE-COMP" className="uppercase" />
+            </FormField>
+            <FormField label="Duration (Years)" required>
+              <Select value={form.durationYears} onChange={f('durationYears')}>
+                {[1,2,3,4,5].map((y) => <option key={y} value={y}>{y} year{y > 1 ? 's' : ''}</option>)}
+              </Select>
+            </FormField>
+          </div>
+          <FormField label="Department" required>
+            <Select value={form.departmentId} onChange={f('departmentId')}>
+              <option value="">Select department…</option>
+              {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </Select>
+          </FormField>
         </div>
       </Dialog>
 
-      <AlertDialog
-         isOpen={isAlertOpen}
-         onClose={() => setIsAlertOpen(false)}
-         onConfirm={() => setIsAlertOpen(false)}
-         title={`Delete ${deletingCourse?.name}?`}
-         description="This will remove all subjects linked to this course. Are you sure? This cannot be undone."
-         confirmText="Delete"
-         isDestructive={true}
-      />
+      {/* Delete confirm */}
+      <AlertDialog isOpen={isAlertOpen} onClose={() => setIsAlertOpen(false)}
+        onConfirm={handleDelete}
+        title={`Delete "${deleting?.name}"?`}
+        description="This will fail if any subjects or students are linked to this course."
+        confirmText={removing ? 'Deleting…' : 'Delete'} isDestructive />
 
-      <Card>
-        <div className="border-b border-slate-200 dark:border-slate-800 p-4 flex gap-4 items-center bg-slate-50/50 dark:bg-slate-900/50">
-          <div className="relative w-full max-w-md">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Search courses..." 
-              className="w-full pl-9 pr-4 py-2 text-sm border border-slate-300 rounded-lg dark:border-slate-700 dark:bg-slate-950 focus:ring-2 focus:ring-blue-500 outline-none"
-            />
+      {/* Course cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {courses.map((course: any) => (
+          <Card key={course.id} className="overflow-hidden hover:shadow-md transition-shadow">
+            <CardContent className="p-0">
+              <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-start justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-slate-900 dark:text-white leading-tight truncate">{course.name}</h3>
+                    <p className="text-xs text-slate-500 mt-0.5 font-mono">{course.code}</p>
+                  </div>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={() => openEdit(course)}
+                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => { setDeleting(course); setIsAlertOpen(true); }}
+                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="p-5 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Department</span>
+                  <span className="font-medium text-slate-900 dark:text-white truncate max-w-[160px]">
+                    {course.department?.name ?? '—'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Duration</span>
+                  <span className="text-slate-600 dark:text-slate-400">
+                    {course.duration_years} year{course.duration_years > 1 ? 's' : ''}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+
+        {courses.length === 0 && (
+          <div className="col-span-full text-center py-16 text-slate-400">
+            <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-40" />
+            <p>No courses found. {filterDept ? 'Try clearing the filter.' : 'Add one to get started.'}</p>
           </div>
-          <select className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm dark:bg-slate-950 dark:border-slate-700 outline-none hidden sm:block">
-            <option>All Departments</option>
-            <option>Computer Eng</option>
-          </select>
-        </div>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left whitespace-nowrap">
-              <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
-                <tr>
-                  <th className="px-4 py-3 font-medium text-slate-500">Course Name</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Code</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Department</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Duration</th>
-                  <th className="px-4 py-3 font-medium text-slate-500 text-center">Active Students</th>
-                  <th className="px-4 py-3 font-medium text-slate-500 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                {courses.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{c.name}</td>
-                    <td className="px-4 py-3 font-mono text-slate-500">{c.code}</td>
-                    <td className="px-4 py-3">{c.dept}</td>
-                    <td className="px-4 py-3">{c.dur} Years</td>
-                    <td className="px-4 py-3 text-center">{c.students}</td>
-                    <td className="px-4 py-3 text-right">
-                       <div className="flex justify-end gap-2">
-                         <button onClick={() => openEditDialog(c)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"><Edit2 className="w-4 h-4" /></button>
-                         <button onClick={() => openDeleteDialog(c)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"><Trash2 className="w-4 h-4" /></button>
-                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+        )}
+      </div>
     </div>
   );
 }

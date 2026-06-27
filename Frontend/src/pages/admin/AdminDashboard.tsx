@@ -2,32 +2,25 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Users, GraduationCap, CheckCircle, AlertCircle, TrendingUp, Download, Plus, Mail, FileWarning, BarChart as BarChartIcon } from 'lucide-react';
+import { DashboardSkeleton, ErrorBanner } from '@/components/ui/Skeleton';
+import { Users, GraduationCap, AlertCircle, FileWarning, Plus, Download, Mail, BarChart as BarChartIcon } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useNavigate } from 'react-router-dom';
+import { useFetch } from '@/hooks/useFetch';
+import { dashboardApi, attendanceApi } from '@/lib/api';
 
-const attendanceData = [
-  { name: 'COMP', value: 82, fill: '#1E40AF' },
-  { name: 'MECH', value: 68, fill: '#2563EB' },
-  { name: 'CIVIL', value: 75, fill: '#60A5FA' },
-  { name: 'ELEX', value: 71, fill: '#BFDBFE' },
-];
-
-const gradeData = [
-  { name: 'O', value: 45, color: '#1E3A8A' },
-  { name: 'A+', value: 80, color: '#1E40AF' },
-  { name: 'A', value: 120, color: '#1D4ED8' },
-  { name: 'B+', value: 150, color: '#2563EB' },
-  { name: 'B', value: 60, color: '#3B82F6' },
-  { name: 'C', value: 20, color: '#60A5FA' },
-  { name: 'F', value: 8, color: '#93C5FD' },
-];
+const GRADE_COLORS: Record<string, string> = {
+  O: '#1E3A8A', 'A+': '#1E40AF', A: '#1D4ED8',
+  'B+': '#2563EB', B: '#3B82F6', C: '#60A5FA', F: '#93C5FD',
+};
 
 export function AdminDashboard() {
   const navigate = useNavigate();
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const [gradeSemester, setGradeSemester] = useState<string>('5');
+
+  const { data, loading, error, refetch } = useFetch(() => dashboardApi.admin() as Promise<any>);
+  const { data: summaryData } = useFetch(() => attendanceApi.summary() as Promise<any>);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -35,14 +28,30 @@ export function AdminDashboard() {
         setIsQuickAddOpen(false);
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  if (loading) return <DashboardSkeleton />;
+  if (error) return <ErrorBanner message={error} onRetry={refetch} />;
+
+  const d = data as any;
+  const today = d?.attendanceToday ?? {};
+  const totalToday = (today.present ?? 0) + (today.absent ?? 0) + (today.late ?? 0);
+  const attendancePct = totalToday > 0
+    ? Math.round(((today.present + today.late) / totalToday) * 100)
+    : null;
+
+  const deptChartData = (summaryData as any)?.summary?.map((s: any) => ({
+    name: s.department?.code ?? s.department?.name?.slice(0, 5),
+    value: s.attendancePercentage ?? 0,
+  })) ?? [];
+
+  const notifications: any[] = d?.recentNotifications ?? [];
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Dashboard</h1>
@@ -52,40 +61,27 @@ export function AdminDashboard() {
           <Button onClick={() => setIsQuickAddOpen(!isQuickAddOpen)}>
             <Plus className="mr-2 h-4 w-4" /> Quick Add
           </Button>
-          
           {isQuickAddOpen && (
             <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 z-50 overflow-hidden">
               <div className="py-1">
-                <button
-                  onClick={() => { navigate('/admin/students'); setIsQuickAddOpen(false); }}
-                  className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  Add Student
-                </button>
-                <button
-                  onClick={() => { navigate('/admin/faculty'); setIsQuickAddOpen(false); }}
-                  className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  Add Faculty
-                </button>
-                <button
-                  onClick={() => { navigate('/admin/courses'); setIsQuickAddOpen(false); }}
-                  className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  Add Course
-                </button>
-                <button
-                  onClick={() => { navigate('/admin/departments'); setIsQuickAddOpen(false); }}
-                  className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  Add Department
-                </button>
+                {[
+                  { label: 'Add Student',    path: '/admin/students' },
+                  { label: 'Add Faculty',    path: '/admin/faculty' },
+                  { label: 'Add Course',     path: '/admin/courses' },
+                  { label: 'Add Department', path: '/admin/departments' },
+                ].map(({ label, path }) => (
+                  <button key={path} onClick={() => { navigate(path); setIsQuickAddOpen(false); }}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
           )}
         </div>
       </div>
 
+      {/* Stat cards */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardContent className="p-6">
@@ -93,8 +89,8 @@ export function AdminDashboard() {
               <div>
                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Students</p>
                 <div className="mt-1 flex items-baseline gap-2">
-                  <h2 className="text-3xl font-bold text-slate-900 dark:text-white">483</h2>
-                  <span className="text-xs text-green-600 font-medium">↑ +12 this semester</span>
+                  <h2 className="text-3xl font-bold text-slate-900 dark:text-white">{d?.studentCount ?? '—'}</h2>
+                  <span className="text-xs text-slate-500">Active</span>
                 </div>
               </div>
               <div className="rounded-full bg-blue-50 p-3 dark:bg-slate-800">
@@ -109,9 +105,9 @@ export function AdminDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Faculty</p>
-                 <div className="mt-1 flex items-baseline gap-2">
-                  <h2 className="text-3xl font-bold text-slate-900 dark:text-white">32</h2>
-                  <span className="text-xs text-slate-500">Across 4 departments</span>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <h2 className="text-3xl font-bold text-slate-900 dark:text-white">{d?.facultyCount ?? '—'}</h2>
+                  <span className="text-xs text-slate-500">Across {d?.departmentCount ?? '—'} depts</span>
                 </div>
               </div>
               <div className="rounded-full bg-blue-50 p-3 dark:bg-slate-800">
@@ -125,10 +121,12 @@ export function AdminDashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Today's Attendance %</p>
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Today's Attendance</p>
                 <div className="mt-1 flex items-baseline gap-2">
-                  <h2 className="text-3xl font-bold text-amber-600 dark:text-amber-500">74%</h2>
-                  <span className="text-xs text-slate-500">342 / 460 present</span>
+                  <h2 className={`text-3xl font-bold ${attendancePct !== null && attendancePct < 75 ? 'text-amber-600' : 'text-slate-900 dark:text-white'}`}>
+                    {attendancePct !== null ? `${attendancePct}%` : '—'}
+                  </h2>
+                  <span className="text-xs text-slate-500">{today.present ?? 0} present</span>
                 </div>
               </div>
               <div className="rounded-full bg-blue-50 p-3 dark:bg-slate-800">
@@ -143,9 +141,9 @@ export function AdminDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Pending Condonations</p>
-                 <div className="mt-1 flex items-baseline gap-2">
-                  <h2 className="text-3xl font-bold text-slate-900 dark:text-white">8</h2>
-                  <span className="text-xs text-slate-500">Requires HOD action</span>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <h2 className="text-3xl font-bold text-slate-900 dark:text-white">{d?.pendingCondonations ?? '—'}</h2>
+                  <span className="text-xs text-slate-500">Requires action</span>
                 </div>
               </div>
               <div className="rounded-full bg-blue-50 p-3 dark:bg-slate-800">
@@ -156,123 +154,139 @@ export function AdminDashboard() {
         </Card>
       </div>
 
+      {/* Charts */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>This Week's Attendance by Department</CardTitle>
+            <CardTitle>Attendance by Department</CardTitle>
+            <CardDescription>Overall attendance % per department</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-[250px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={attendanceData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                  <Bar dataKey="value" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {deptChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={deptChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
+                    <Tooltip
+                      cursor={{ fill: 'rgba(0,0,0,0.05)' }}
+                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      formatter={(val: number) => [`${val.toFixed(1)}%`, 'Attendance']}
+                    />
+                    <Bar dataKey="value" fill="#2563EB" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-sm text-slate-400">
+                  No department attendance data yet
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 relative z-20">
-            <CardTitle>Grade Distribution</CardTitle>
-            <select
-              value={gradeSemester}
-              onChange={(e) => setGradeSemester(e.target.value)}
-              className="px-2 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-            >
-              {[1, 2, 3, 4, 5, 6, 7, 8].map((sem) => (
-                <option key={sem} value={String(sem)}>
-                  Semester {sem}
-                </option>
-              ))}
-            </select>
+          <CardHeader>
+            <CardTitle>Today's Session Summary</CardTitle>
+            <CardDescription>{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</CardDescription>
           </CardHeader>
           <CardContent>
-             <div className="h-[250px] w-full relative flex items-center justify-center">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={gradeData} innerRadius={60} outerRadius={100} paddingAngle={2} dataKey="value">
-                    {gradeData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="absolute text-center">
-                <p className="text-2xl font-bold text-slate-900 dark:text-white">483</p>
-                <p className="text-xs text-slate-500">Totals</p>
-              </div>
+            <div className="h-[250px] flex items-center justify-center">
+              {totalToday > 0 ? (
+                <div className="relative w-full h-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={[
+                          { name: 'Present', value: today.present ?? 0, color: '#2563EB' },
+                          { name: 'Late',    value: today.late    ?? 0, color: '#60A5FA' },
+                          { name: 'Absent',  value: today.absent  ?? 0, color: '#BFDBFE' },
+                        ]}
+                        innerRadius={60} outerRadius={100} paddingAngle={2} dataKey="value"
+                      >
+                        {[{ color: '#2563EB' }, { color: '#60A5FA' }, { color: '#BFDBFE' }].map((c, i) => (
+                          <Cell key={i} fill={c.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-slate-900 dark:text-white">{totalToday}</p>
+                      <p className="text-xs text-slate-500">Records</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center text-sm text-slate-400 space-y-1">
+                  <p>No sessions completed today yet.</p>
+                  <p className="text-xs">{today.totalSessions ?? 0} session(s) scheduled.</p>
+                </div>
+              )}
             </div>
+            {totalToday > 0 && (
+              <div className="mt-2 flex justify-center gap-6 text-xs text-slate-500">
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-600 inline-block" /> Present: {today.present}</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-400 inline-block" /> Late: {today.late}</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-200 inline-block" /> Absent: {today.absent}</span>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
 
+      {/* Bottom row */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2 relative overflow-hidden ring-1 ring-blue-500/30">
-          <div className="absolute top-0 left-0 w-full h-1 bg-blue-600"></div>
+        <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                 <Badge variant="outline" className="text-blue-600 bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800">🤖 AI-Powered</Badge>
-                 Students At Risk
-              </CardTitle>
-              <CardDescription>Top 5 at-risk students (below 65% + low marks)</CardDescription>
+              <CardTitle>Recent Notifications</CardTitle>
+              <CardDescription>Latest announcements sent</CardDescription>
             </div>
-            <Button variant="ghost" size="sm" className="text-blue-600" onClick={() => navigate('/admin/students')}>View all →</Button>
+            <Button variant="ghost" size="sm" className="text-blue-600" onClick={() => navigate('/admin/notifications')}>
+              View all →
+            </Button>
           </CardHeader>
           <CardContent>
-             <div className="overflow-x-auto">
-               <table className="w-full text-sm text-left">
-                 <thead>
-                   <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
-                     <th className="pb-3 font-medium">Name</th>
-                     <th className="pb-3 font-medium">Course</th>
-                     <th className="pb-3 font-medium">Attendance %</th>
-                     <th className="pb-3 font-medium">Risk Level</th>
-                   </tr>
-                 </thead>
-                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                    {[
-                      { name: 'Rahul Sharma', course: 'Computer Eng', att: 61, risk: 'Critical', color: 'danger' },
-                      { name: 'Priya Patel', course: 'Mechanical', att: 64, risk: 'High', color: 'warning' },
-                      { name: 'Amit Kumar', course: 'Civil', att: 58, risk: 'Critical', color: 'danger' },
-                    ].map((row, i) => (
-                      <tr key={i}>
-                        <td className="py-3 font-medium text-slate-900 dark:text-slate-100">{row.name}</td>
-                        <td className="py-3 text-slate-500">{row.course}</td>
-                        <td className="py-3">
-                          <span className={`font-mono ${row.att >= 75 ? 'text-green-600' : 'text-red-600'}`}>{row.att}%</span>
-                        </td>
-                        <td className="py-3">
-                          <Badge variant={row.color as any}>{row.risk}</Badge>
-                        </td>
-                      </tr>
-                    ))}
-                 </tbody>
-               </table>
-             </div>
+            {notifications.length === 0 ? (
+              <p className="text-sm text-slate-400 py-4 text-center">No notifications yet.</p>
+            ) : (
+              <div className="space-y-4">
+                {notifications.map((n: any, i: number) => (
+                  <div key={n.id ?? i} className="flex gap-4">
+                    <div className="mt-1.5 h-2 w-2 rounded-full bg-blue-500 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-slate-900 dark:text-white">{n.title}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{n.message}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {new Date(n.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {' · '}
+                        <Badge variant="outline" className="text-[10px] py-0 px-1">{n.audience}</Badge>
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
+            <CardTitle>College Summary</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-4">
             {[
-              { msg: 'Dr. Patil updated marks for CS301', time: '2 min ago' },
-              { msg: 'Priya Sharma applied for condonation', time: '15 min ago' },
-              { msg: 'Rahul login from new device', time: '1 hour ago' },
-            ].map((activity, i) => (
-              <div key={i} className="flex gap-4">
-                <div className="mt-1 h-2 w-2 rounded-full bg-blue-500 shrink-0"></div>
-                <div className="space-y-1">
-                  <p className="text-sm font-medium leading-none">{activity.msg}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{activity.time}</p>
-                </div>
+              { label: 'Departments', value: d?.departmentCount },
+              { label: 'Courses',     value: d?.courseCount },
+              { label: 'Students',    value: d?.studentCount },
+              { label: 'Faculty',     value: d?.facultyCount },
+              { label: 'Sessions Today', value: today?.totalSessions },
+              { label: 'Pending Condonations', value: d?.pendingCondonations },
+            ].map(({ label, value }) => (
+              <div key={label} className="flex justify-between items-center text-sm border-b border-slate-100 dark:border-slate-800 pb-2 last:border-0 last:pb-0">
+                <span className="text-slate-500">{label}</span>
+                <span className="font-semibold text-slate-900 dark:text-white">{value ?? '—'}</span>
               </div>
             ))}
           </CardContent>
