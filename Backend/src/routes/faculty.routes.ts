@@ -6,6 +6,7 @@ import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { hashPassword } from '../utils/password.js';
 import { unwrap } from '../utils/unwrap.js';
+import { logAudit } from '../utils/audit.js';
 
 export const facultyRouter = Router();
 
@@ -94,6 +95,8 @@ facultyRouter.post(
       unwrap(deptError);
     }
 
+    await logAudit(req, { action: 'CREATE_FACULTY', module: 'Faculty', details: { email: body.email, isHod: body.isHod } });
+
     res.status(201).json({ faculty });
   })
 );
@@ -173,6 +176,8 @@ facultyRouter.patch(
 
     const { error: userUpdateError } = await supabase.from('users').update({ is_active: false }).eq('id', faculty.user_id);
     unwrap(userUpdateError);
+
+    await logAudit(req, { action: 'DEACTIVATE_FACULTY', module: 'Faculty', details: { facultyId: faculty.id } });
 
     res.json({ message: 'Faculty member deactivated.' });
   })

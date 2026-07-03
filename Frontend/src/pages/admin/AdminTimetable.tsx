@@ -1,156 +1,243 @@
 import React, { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Clock, CheckSquare } from 'lucide-react';
+import { Badge } from '@/components/ui/Badge';
 import { Dialog } from '@/components/ui/Dialog';
+import { AlertDialog } from '@/components/ui/AlertDialog';
+import { FormField, Input, Select } from '@/components/ui/FormField';
+import { DashboardSkeleton, ErrorBanner } from '@/components/ui/Skeleton';
+import { useToast } from '@/components/ui/Toast';
+import { Plus, Trash2, Loader2, Calendar } from 'lucide-react';
+import { useFetch } from '@/hooks/useFetch';
+import { timetableApi, coursesApi, subjectsApi, facultyApi } from '@/lib/api';
+
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAY_SHORT = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+const EMPTY_FORM = {
+  courseId: '', division: 'A', dayOfWeek: 0,
+  startTime: '09:00', endTime: '10:00',
+  subjectId: '', facultyId: '', room: '',
+};
 
 export function AdminTimetable() {
-  const [isSlotOpen, setIsSlotOpen] = useState(false);
-  const [selectedCell, setSelectedCell] = useState<{day: number, time: string} | null>(null);
-  
-  const [subject, setSubject] = useState('');
-  const [faculty, setFaculty] = useState('');
-  const [room, setRoom] = useState('');
+  const { toast } = useToast();
 
-  const openSlotDialog = (day: number, time: string) => {
-    setSelectedCell({ day, time });
-    setSubject(''); setFaculty(''); setRoom('');
-    setIsSlotOpen(true);
+  const { data: coursesData } = useFetch(() => coursesApi.list() as Promise<any>);
+  const { data: facultyData }  = useFetch(() => facultyApi.list() as Promise<any>);
+
+  const [filterCourse, setFilterCourse] = useState('');
+  const [filterDiv,    setFilterDiv]    = useState('A');
+
+  const { data, loading, error, refetch } = useFetch(
+    () => (filterCourse
+      ? timetableApi.list({ courseId: filterCourse, division: filterDiv })
+      : Promise.resolve({ slots: [] })) as Promise<any>,
+    [filterCourse, filterDiv]
+  );
+
+  // Load subjects when a course is selected
+  const { data: subjectsData } = useFetch(
+    () => filterCourse ? (subjectsApi.list({ courseId: filterCourse }) as Promise<any>) : Promise.resolve({ subjects: [] }),
+    [filterCourse]
+  );
+
+  const [isOpen,      setIsOpen]      = useState(false);
+  const [isAlertOpen, setIsAlertOpen] = useState(false);
+  const [deleting,    setDeleting]    = useState<any>(null);
+  const [saving,      setSaving]      = useState(false);
+  const [removing,    setRemoving]    = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
+
+  const courses:  any[] = (coursesData  as any)?.courses  ?? [];
+  const allFaculty: any[] = (facultyData as any)?.faculty ?? [];
+  const subjects: any[] = (subjectsData as any)?.subjects ?? [];
+  const slots:    any[] = (data as any)?.slots ?? [];
+
+  // Group slots by day
+  const byDay = slots.reduce<Record<number, any[]>>((acc, s) => {
+    if (!acc[s.day_of_week]) acc[s.day_of_week] = [];
+    acc[s.day_of_week].push(s);
+    return acc;
+  }, {});
+
+  const f = (field: keyof typeof EMPTY_FORM) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm(prev => ({ ...prev, [field]: e.target.value }));
+
+  const openCreate = () => {
+    setForm({ ...EMPTY_FORM, courseId: filterCourse, division: filterDiv });
+    setIsOpen(true);
   };
 
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const [times, setTimes] = useState(['08:00 AM', '09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM', '01:00 PM', '02:00 PM']);
+  const handleSave = async () => {
+    if (!form.courseId || !form.subjectId) { toast('error', 'Course and subject are required.'); return; }
+    setSaving(true);
+    try {
+      await timetableApi.create({
+        courseId: form.courseId, division: form.division,
+        dayOfWeek: Number(form.dayOfWeek),
+        startTime: form.startTime, endTime: form.endTime,
+        subjectId: form.subjectId || undefined,
+        facultyId: form.facultyId || undefined,
+        room: form.room || undefined,
+      });
+      toast('success', 'Slot added to timetable.');
+      setIsOpen(false);
+      refetch();
+    } catch (err: any) {
+      toast('error', err.message ?? 'Failed to save slot.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  const handleTimeChange = (index: number, newTime: string) => {
-    const updatedTimes = [...times];
-    updatedTimes[index] = newTime;
-    setTimes(updatedTimes);
+  const handleDelete = async () => {
+    if (!deleting) return;
+    setRemoving(true);
+    try {
+      await timetableApi.delete(deleting.id);
+      toast('success', 'Slot removed.');
+      setIsAlertOpen(false);
+      refetch();
+    } catch (err: any) {
+      toast('error', err.message ?? 'Failed to delete slot.');
+    } finally {
+      setRemoving(false);
+    }
   };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Timetable Builder</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Schedule classes for different divisions</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Timetable</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Weekly recurring schedule template</p>
         </div>
-        <div className="flex gap-2">
-           <Button variant="outline">Copy Previous</Button>
-           <Button variant="outline" className="text-red-600 hover:bg-red-50 hover:text-red-700 border-red-200">Clear</Button>
-           <Button ><CheckSquare className="mr-2 h-4 w-4"/> Save</Button>
-        </div>
+        <Button onClick={openCreate} disabled={!filterCourse}>
+          <Plus className="mr-2 h-4 w-4" /> Add Slot
+        </Button>
       </div>
 
-      <div className="flex gap-4">
-        <select className="px-3 py-2 w-[180px] bg-white border border-slate-300 rounded-lg text-sm dark:bg-slate-950 dark:border-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
-          <option>BTECH-COMP</option>
-          <option>BTECH-MECH</option>
-          <option>BTECH-CIVIL</option>
-          <option>BTECH-ELEX</option>
-        </select>
-        <select className="px-3 py-2 w-[120px] bg-white border border-slate-300 rounded-lg text-sm dark:bg-slate-950 dark:border-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
-           <option>Semester 1</option>
-           <option>Semester 2</option>
-           <option>Semester 3</option>
-           <option>Semester 4</option>
-           <option>Semester 5</option>
-           <option>Semester 6</option>
-           <option>Semester 7</option>
-           <option>Semester 8</option>
-        </select>
-      </div>
-
-      <Dialog 
-        isOpen={isSlotOpen} 
-        onClose={() => setIsSlotOpen(false)} 
-        title={`Add Slot: ${selectedCell ? days[selectedCell.day - 1] : ''} ${selectedCell?.time}`}
+      {/* Add slot dialog */}
+      <Dialog isOpen={isOpen} onClose={() => setIsOpen(false)} title="Add Timetable Slot"
         footer={
-           <>
-              <Button variant="outline" onClick={() => setIsSlotOpen(false)}>Cancel</Button>
-              <Button  onClick={() => setIsSlotOpen(false)}>Save Slot</Button>
-           </>
+          <>
+            <Button variant="outline" onClick={() => setIsOpen(false)} disabled={saving}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving…</> : 'Add Slot'}
+            </Button>
+          </>
         }
       >
         <div className="space-y-4 py-2">
-           <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Subject <span className="text-red-500">*</span></label>
-              <select value={subject} onChange={(e) => setSubject(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                 <option value="">Select subject...</option>
-                 <option value="CS301">CS301 - Data Structures</option>
-                 <option value="CS302">CS302 - Algorithms</option>
-              </select>
-           </div>
-           
-           <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Faculty <span className="text-red-500">*</span></label>
-              <select value={faculty} onChange={(e) => setFaculty(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                 <option value="">Select faculty...</option>
-                 <option value="Dr. Patil">Dr. Patil</option>
-                 <option value="Prof. Kumar">Prof. Kumar</option>
-              </select>
-           </div>
-
-           <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Room <span className="text-red-500">*</span></label>
-              <select value={room} onChange={(e) => setRoom(e.target.value)} className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                 <option value="">Select room...</option>
-                 <option value="204">Room 204</option>
-                 <option value="205">Room 205</option>
-                 <option value="Lab 1">Lab 1</option>
-              </select>
-           </div>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Course" required>
+              <Select value={form.courseId} onChange={f('courseId')}>
+                <option value="">Select…</option>
+                {courses.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </Select>
+            </FormField>
+            <FormField label="Division" required>
+              <Select value={form.division} onChange={f('division')}>
+                {['A','B','C','D'].map(d => <option key={d} value={d}>Division {d}</option>)}
+              </Select>
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Day" required>
+              <Select value={form.dayOfWeek} onChange={f('dayOfWeek')}>
+                {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+              </Select>
+            </FormField>
+            <FormField label="Room">
+              <Input value={form.room} onChange={f('room')} placeholder="e.g. A-204" />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Start Time" required>
+              <Input type="time" value={form.startTime} onChange={f('startTime')} />
+            </FormField>
+            <FormField label="End Time" required>
+              <Input type="time" value={form.endTime} onChange={f('endTime')} />
+            </FormField>
+          </div>
+          <FormField label="Subject" required>
+            <Select value={form.subjectId} onChange={f('subjectId')}>
+              <option value="">Select subject…</option>
+              {subjects.map((s: any) => <option key={s.id} value={s.id}>{s.name} (Sem {s.semester})</option>)}
+            </Select>
+          </FormField>
+          <FormField label="Faculty">
+            <Select value={form.facultyId} onChange={f('facultyId')}>
+              <option value="">Select faculty…</option>
+              {allFaculty.map((f: any) => <option key={f.id} value={f.id}>{f.user?.name}</option>)}
+            </Select>
+          </FormField>
         </div>
       </Dialog>
 
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left table-fixed min-w-[800px]">
-            <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
-               <tr>
-                  <th className="w-24 px-4 py-3 font-medium text-slate-500 border-r border-slate-200 dark:border-slate-800 text-center">Time</th>
-                  {days.map(d => (
-                    <th key={d} className="px-4 py-3 font-medium text-slate-500 text-center">{d}</th>
-                  ))}
-               </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-               {times.map((time, i) => (
-                  <tr key={i} className="h-24">
-                    <td className="w-24 px-2 py-3 font-mono text-xs text-slate-500 border-r border-slate-200 dark:border-slate-800 align-top text-center pt-3">
-                       <input
-                          type="text"
-                          value={time}
-                          onChange={(e) => handleTimeChange(i, e.target.value)}
-                          className="w-full text-center bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-700 focus:border-blue-500 rounded py-1 outline-none transition-colors"
-                       />
-                    </td>
-                    {[1,2,3,4,5,6].map((day) => (
-                       <td key={day} onClick={() => openSlotDialog(day, time)} className="px-2 py-2 align-top border-r border-slate-100 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-900/50 cursor-pointer group relative">
-                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                             <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center dark:bg-slate-800 dark:text-blue-400 font-medium text-lg">+</div>
-                          </div>
-                          {(i === 1 && day === 1) && (
-                            <div className="h-full w-full rounded-md bg-blue-50/50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 p-2 flex flex-col justify-between relative z-10">
-                               <span className="font-semibold text-blue-800 dark:text-blue-400 text-xs">CS301</span>
-                               <span className="text-[10px] text-blue-600 dark:text-blue-500 truncate">Dr. Patil • Rm 204</span>
-                            </div>
-                          )}
-                          {(i === 3 && day === 2) && (
-                            <div className="h-full w-full rounded-md bg-amber-100/50 dark:bg-amber-900/30 border border-slate-200 dark:border-amber-800 p-2 flex flex-col justify-between relative z-10 border-red-500 shadow-[0_0_0_1px_rgba(239,68,68,1)]">
-                               <span className="font-semibold text-amber-800 dark:text-amber-400 text-xs">CS302</span>
-                               <span className="text-[10px] text-amber-600 dark:text-amber-500 truncate">Dr. Patil • Rm 205</span>
-                               <div className="absolute top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border border-white" title="Conflict"></div>
-                            </div>
-                          )}
-                       </td>
-                    ))}
-                  </tr>
-               ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <AlertDialog isOpen={isAlertOpen} onClose={() => setIsAlertOpen(false)}
+        onConfirm={handleDelete} title="Remove this slot?"
+        description="This removes the recurring schedule entry. It does not cancel any existing sessions."
+        confirmText={removing ? 'Removing…' : 'Remove Slot'} isDestructive />
 
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 items-center">
+        <Select value={filterCourse} onChange={(e) => setFilterCourse(e.target.value)} className="flex-1 min-w-[220px] max-w-xs">
+          <option value="">— Select a course to view its timetable —</option>
+          {courses.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+        <Select value={filterDiv} onChange={(e) => setFilterDiv(e.target.value)} className="w-36">
+          {['A','B','C','D'].map(d => <option key={d} value={d}>Division {d}</option>)}
+        </Select>
+      </div>
+
+      {!filterCourse ? (
+        <Card>
+          <CardContent className="py-20 text-center text-slate-400">
+            <Calendar className="w-10 h-10 mx-auto mb-3 opacity-40" />
+            <p>Select a course above to view or edit its weekly timetable.</p>
+          </CardContent>
+        </Card>
+      ) : loading ? <DashboardSkeleton /> : (
+        <div className="grid grid-cols-1 gap-4">
+          {DAYS.map((day, idx) => {
+            const daySlots = (byDay[idx] ?? []).sort((a: any, b: any) => a.start_time.localeCompare(b.start_time));
+            return (
+              <Card key={idx} className={daySlots.length === 0 ? 'opacity-60' : ''}>
+                <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/60">
+                  <span className="font-bold text-xs w-10 text-blue-600 dark:text-blue-400">{DAY_SHORT[idx]}</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">{day}</span>
+                  <Badge variant="outline" className="ml-auto text-[10px]">{daySlots.length} slot{daySlots.length !== 1 ? 's' : ''}</Badge>
+                </div>
+                <CardContent className="p-3">
+                  {daySlots.length === 0 ? (
+                    <p className="text-sm text-slate-400 py-2 text-center">No classes scheduled</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-3">
+                      {daySlots.map((slot: any) => (
+                        <div key={slot.id}
+                          className="flex-1 min-w-[200px] max-w-xs rounded-lg border border-slate-200 dark:border-slate-800 p-3 bg-white dark:bg-slate-950 relative group">
+                          <p className="font-semibold text-slate-900 dark:text-white text-sm">{slot.subject?.name ?? '—'}</p>
+                          <p className="text-xs text-slate-400 font-mono mt-0.5">{slot.start_time} – {slot.end_time}</p>
+                          <p className="text-xs text-slate-500 mt-1">{slot.faculty?.user?.name ?? '—'}</p>
+                          {slot.room && <p className="text-xs text-slate-400 mt-0.5">Room: {slot.room}</p>}
+                          <button
+                            onClick={() => { setDeleting(slot); setIsAlertOpen(true); }}
+                            className="absolute top-2 right-2 p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all rounded">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

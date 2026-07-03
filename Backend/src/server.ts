@@ -22,6 +22,10 @@ import { marksRouter } from './routes/marks.routes.js';
 import { condonationsRouter } from './routes/condonations.routes.js';
 import { dashboardRouter } from './routes/dashboard.routes.js';
 import { assignmentsRouter } from './routes/assignments.routes.js';
+import { gradingRouter } from './routes/grading.routes.js';
+import { timetableRouter } from './routes/timetable.routes.js';
+import { auditRouter } from './routes/audit.routes.js';
+import { aiRouter } from './routes/ai.routes.js';
 
 const app = express();
 
@@ -55,6 +59,10 @@ app.use('/api/marks', marksRouter);
 app.use('/api/condonations', condonationsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/assignments', assignmentsRouter);
+app.use('/api/grading', gradingRouter);
+app.use('/api/timetable', timetableRouter);
+app.use('/api/audit', auditRouter);
+app.use('/api/ai', aiRouter);
 
 // ── Catch-all & error handling ────────────────────────────────────────────────
 app.use(notFoundHandler);

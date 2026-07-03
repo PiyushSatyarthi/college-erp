@@ -141,6 +141,48 @@ interface NotificationsRow {
   created_at: string;
 }
 
+interface GradingSchemesRow {
+  id: string;
+  name: string;
+  is_default: boolean;
+  created_at: string;
+}
+
+interface GradingBandsRow {
+  id: string;
+  scheme_id: string;
+  grade: string;
+  min_percentage: number;
+  sort_order: number;
+}
+
+interface TimetableSlotsRow {
+  id: string;
+  course_id: string;
+  division: string;
+  academic_year_id: string;
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+  subject_id: string | null;
+  faculty_id: string | null;
+  room: string | null;
+  created_at: string;
+}
+
+interface AuditLogsRow {
+  id: string;
+  user_id: string | null;
+  user_name: string;
+  user_email: string;
+  action: string;
+  module: string;
+  status: 'Success' | 'Failed';
+  ip_address: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
 type Table<Row, OptionalInsertKeys extends keyof Row> = {
   Row: Row;
   Insert: Omit<Row, OptionalInsertKeys> & Partial<Pick<Row, OptionalInsertKeys>>;
@@ -163,6 +205,10 @@ export interface Database {
       marks: Table<MarksRow, 'id' | 'q1' | 'q2' | 'q3' | 'total' | 'grade' | 'published' | 'updated_at'>;
       condonations: Table<CondonationsRow, 'id' | 'status' | 'applied_at' | 'reviewed_by' | 'reviewed_at'>;
       notifications: Table<NotificationsRow, 'id' | 'audience' | 'created_by' | 'created_at'>;
+      grading_schemes: Table<GradingSchemesRow, 'id' | 'is_default' | 'created_at'>;
+      grading_bands: Table<GradingBandsRow, 'id' | 'sort_order'>;
+      timetable_slots: Table<TimetableSlotsRow, 'id' | 'subject_id' | 'faculty_id' | 'room' | 'created_at'>;
+      audit_logs: Table<AuditLogsRow, 'id' | 'user_id' | 'status' | 'ip_address' | 'details' | 'created_at'>;
     };
   };
 }

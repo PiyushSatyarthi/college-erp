@@ -6,6 +6,7 @@ import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { getStudentByUserId } from '../utils/lookups.js';
 import { unwrap } from '../utils/unwrap.js';
+import { logAudit } from '../utils/audit.js';
 
 export const condonationsRouter = Router();
 
@@ -86,6 +87,9 @@ async function review(req: import('express').Request, res: import('express').Res
 
   unwrap(error);
   if (!data) throw ApiError.notFound('Pending condonation request not found.');
+
+  await logAudit(req, { action: `CONDONATION_${status.toUpperCase()}`, module: 'Condonations', details: { id: req.params.id } });
+
   res.json({ condonation: data });
 }
 

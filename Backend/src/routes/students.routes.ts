@@ -6,6 +6,7 @@ import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { hashPassword } from '../utils/password.js';
 import { unwrap } from '../utils/unwrap.js';
+import { logAudit } from '../utils/audit.js';
 
 export const studentsRouter = Router();
 
@@ -124,6 +125,8 @@ studentsRouter.post(
       unwrap(studentError);
     }
 
+    await logAudit(req, { action: 'CREATE_STUDENT', module: 'Students', details: { rollNumber: body.rollNumber, email: body.email } });
+
     res.status(201).json({ student });
   })
 );
@@ -201,6 +204,8 @@ studentsRouter.patch(
 
     const { error: userUpdateError } = await supabase.from('users').update({ is_active: false }).eq('id', student.user_id);
     unwrap(userUpdateError);
+
+    await logAudit(req, { action: 'DEACTIVATE_STUDENT', module: 'Students', details: { studentId: student.id } });
 
     res.json({ message: 'Student deactivated.' });
   })

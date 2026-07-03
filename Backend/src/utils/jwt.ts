@@ -5,6 +5,7 @@ import type { Role } from '../types/database.js';
 export interface JwtPayload {
   sub: string; // user id
   email: string;
+  name: string;
   role: Role;
 }
 

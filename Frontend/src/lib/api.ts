@@ -242,3 +242,57 @@ export const assignmentsApi = {
   create:     (body: unknown) => api.post('/api/assignments', body),
   delete:     (id: string) => api.delete(`/api/assignments/${id}`),
 };
+
+// ---------------------------------------------------------------------------
+// Grading schemes
+// ---------------------------------------------------------------------------
+export const gradingApi = {
+  list:       () => api.get('/api/grading'),
+  getDefault: () => api.get('/api/grading/default'),
+  create:     (body: unknown) => api.post('/api/grading', body),
+  setDefault: (id: string) => api.patch(`/api/grading/${id}/set-default`),
+  delete:     (id: string) => api.delete(`/api/grading/${id}`),
+};
+
+// ---------------------------------------------------------------------------
+// Timetable
+// ---------------------------------------------------------------------------
+export const timetableApi = {
+  list: (params?: { courseId?: string; division?: string; facultyId?: string; academicYearId?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.courseId)       qs.set('courseId',       params.courseId);
+    if (params?.division)       qs.set('division',       params.division);
+    if (params?.facultyId)      qs.set('facultyId',      params.facultyId);
+    if (params?.academicYearId) qs.set('academicYearId', params.academicYearId);
+    return api.get(`/api/timetable${qs.toString() ? `?${qs}` : ''}`);
+  },
+  create: (body: unknown) => api.post('/api/timetable', body),
+  update: (id: string, body: unknown) => api.put(`/api/timetable/${id}`, body),
+  delete: (id: string) => api.delete(`/api/timetable/${id}`),
+};
+
+// ---------------------------------------------------------------------------
+// Audit logs
+// ---------------------------------------------------------------------------
+export const auditApi = {
+  list: (params?: { module?: string; status?: string; search?: string; from?: string; to?: string; page?: number; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.module)  qs.set('module',  params.module);
+    if (params?.status)  qs.set('status',  params.status);
+    if (params?.search)  qs.set('search',  params.search);
+    if (params?.from)    qs.set('from',    params.from);
+    if (params?.to)      qs.set('to',      params.to);
+    if (params?.page)    qs.set('page',    String(params.page));
+    if (params?.limit)   qs.set('limit',   String(params.limit));
+    return api.get(`/api/audit${qs.toString() ? `?${qs}` : ''}`);
+  },
+  modules: () => api.get('/api/audit/modules'),
+};
+
+// ---------------------------------------------------------------------------
+// AI assistant
+// ---------------------------------------------------------------------------
+export const aiApi = {
+  chat: (message: string, history: { role: 'user' | 'assistant'; content: string }[] = []) =>
+    api.post<{ reply: string; role: string }>('/api/ai/chat', { message, history }),
+};

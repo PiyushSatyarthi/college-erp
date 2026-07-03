@@ -5,8 +5,9 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { computeGrade, computeTotal } from '../utils/grading.js';
-import { getCurrentAcademicYearId, getStudentByUserId } from '../utils/lookups.js';
+import { getCurrentAcademicYearId, getStudentByUserId, getDefaultGradingBands } from '../utils/lookups.js';
 import { unwrap } from '../utils/unwrap.js';
+import { logAudit } from '../utils/audit.js';
 
 export const marksRouter = Router();
 
@@ -78,6 +79,7 @@ marksRouter.post(
   asyncHandler(async (req, res) => {
     const body = bulkSchema.parse(req.body);
     const academicYearId = await getCurrentAcademicYearId();
+    const bands = await getDefaultGradingBands();
 
     const rows = body.entries.map((entry) => {
       const total = computeTotal(entry.q1, entry.q2, entry.q3);
@@ -89,7 +91,7 @@ marksRouter.post(
         q2: entry.q2,
         q3: entry.q3,
         total,
-        grade: computeGrade(total),
+        grade: computeGrade(total, bands),
         updated_at: new Date().toISOString(),
       };
     });
@@ -140,6 +142,8 @@ marksRouter.post(
       .eq('academic_year_id', academicYearId)
       .in('student_id', studentIds);
     unwrap(updateError);
+
+    await logAudit(req, { action: 'PUBLISH_MARKS', module: 'Marks', details: { subjectId: body.subjectId, division: body.division, count: studentIds.length } });
 
     res.json({ message: 'Marks published.', count: studentIds.length });
   })

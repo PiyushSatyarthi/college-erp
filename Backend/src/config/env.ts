@@ -10,6 +10,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required for migrations/seeding'),
   JWT_SECRET: z.string().min(8, 'JWT_SECRET must be at least 8 characters'),
   JWT_EXPIRES_IN: z.string().default('8h'),
+  // AI Assistant — use Groq (free tier available at console.groq.com)
+  GROQ_API_KEY: z.string().optional(),
+  // Legacy Anthropic key — kept optional so old .env files don't break
+  ANTHROPIC_API_KEY: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

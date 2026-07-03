@@ -7,6 +7,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { comparePassword, hashPassword } from '../utils/password.js';
 import { signToken } from '../utils/jwt.js';
 import { unwrap } from '../utils/unwrap.js';
+import { logAudit } from '../utils/audit.js';
 
 export const authRouter = Router();
 
@@ -29,15 +30,22 @@ authRouter.post(
     unwrap(error);
 
     if (!user || !user.is_active) {
+      await logAudit(req, { action: 'LOGIN', module: 'Auth', status: 'Failed', details: { email } },
+        { id: null, name: email, email });
       throw ApiError.unauthorized('Invalid email or password.');
     }
 
     const valid = await comparePassword(password, user.password_hash);
     if (!valid) {
+      await logAudit(req, { action: 'LOGIN', module: 'Auth', status: 'Failed', details: { email } },
+        { id: user.id, name: user.name, email: user.email });
       throw ApiError.unauthorized('Invalid email or password.');
     }
 
-    const token = signToken({ sub: user.id, email: user.email, role: user.role });
+    const token = signToken({ sub: user.id, email: user.email, name: user.name, role: user.role });
+
+    await logAudit(req, { action: 'LOGIN', module: 'Auth', status: 'Success' },
+      { id: user.id, name: user.name, email: user.email });
 
     res.json({
       token,

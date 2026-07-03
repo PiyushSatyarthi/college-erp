@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { unwrap } from '../utils/unwrap.js';
+import { logAudit } from '../utils/audit.js';
 
 export const subjectsRouter = Router();
 
@@ -108,6 +109,7 @@ subjectsRouter.delete(
   asyncHandler(async (req, res) => {
     const { error } = await supabase.from('subjects').delete().eq('id', req.params.id);
     unwrap(error);
+    await logAudit(req, { action: 'DELETE_SUBJECT', module: 'Subjects', details: { id: req.params.id } });
     res.status(204).send();
   })
 );
